@@ -1,0 +1,90 @@
+services:
+
+  db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: "localhost"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - bagisto_net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --save 20 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - bagisto_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  bagisto:
+    image: webkul/bagisto:latest
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "6000:80"
+    volumes:
+      - bagisto_storage:/var/www/html/storage
+      - ./.env.bagisto:/var/www/html/.env   # ← mounts your env as the app .env
+    networks:
+      - bagisto_net
+
+  queue:
+    image: webkul/bagisto:latest
+    restart: always
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90", "--sleep=3"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - bagisto_storage:/var/www/html/storage
+      - ./.env.bagisto:/var/www/html/.env   # ← same
+    networks:
+      - bagisto_net
+
+  scheduler:
+    image: webkul/bagisto:latest
+    restart: always
+    command: >
+      bash -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - bagisto_storage:/var/www/html/storage
+      - ./.env.bagisto:/var/www/html/.env   # ← same
+    networks:
+      - bagisto_net
+
+volumes:
+  db_data:
+  redis_data:
+  bagisto_storage:
+
+networks:
+  bagisto_net:
+    driver: bridge

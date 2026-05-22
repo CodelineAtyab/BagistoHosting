@@ -1,0 +1,7 @@
+.env
+.env.bagisto
+nginx/certs/
+backups/
+workspace/
+.configs/data/
+*.log
